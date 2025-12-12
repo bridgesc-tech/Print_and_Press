@@ -1,7 +1,7 @@
 // PWA Main JavaScript
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getFirestore, collection, addDoc, updateDoc, doc, query, where, onSnapshot, orderBy } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
-import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 import { firebaseConfig, COLLECTIONS } from './firebase-config.js';
 import { Order, OrderStatus } from './types.js';
 
@@ -79,17 +79,87 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateSyncIndicator(false);
     
     // Authenticate with anonymous auth (required for Firestore access)
+    // CRITICAL: Wait for authentication to complete before proceeding
+    let authenticated = false;
     try {
         showDebugMessage('Authenticating with Firebase...', 'info');
-        await signInAnonymously(auth);
+        const userCredential = await signInAnonymously(auth);
+        window.firebaseAuthenticated = true;
+        authenticated = true;
         console.log('Anonymous authentication successful');
-        showDebugMessage('Authenticated!', 'success');
     } catch (authError) {
         console.error('Authentication error:', authError);
-        showDebugMessage('Auth error: ' + (authError.message || authError.code), 'error');
+        // If anonymous auth fails, check for existing auth state
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+            window.firebaseAuthenticated = true;
+            authenticated = true;
+            console.log('Using existing auth state');
+        } else {
+            // Wait a moment and retry once
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            try {
+                const retryCredential = await signInAnonymously(auth);
+                window.firebaseAuthenticated = true;
+                authenticated = true;
+                console.log('Anonymous authentication successful on retry');
+            } catch (retryError) {
+                showDebugMessage('Auth failed: ' + (retryError.message || retryError.code), 'error');
+                updateSyncIndicator(false);
+                return;
+            }
+        }
+    }
+    
+    // Ensure authentication is complete before proceeding
+    // Verify auth state is actually set
+    const finalAuthCheck = auth.currentUser;
+    if (!finalAuthCheck) {
+        // Wait a moment and check again (auth might be propagating)
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const retryAuthCheck = auth.currentUser;
+        if (!retryAuthCheck) {
+            showDebugMessage('Auth did not complete. Check Firebase settings.', 'error');
+            updateSyncIndicator(false);
+            return;
+        }
+    }
+    
+    if (!authenticated || !window.firebaseAuthenticated) {
+        window.firebaseAuthenticated = true; // Set it now since we verified auth.currentUser exists
+    }
+    
+    console.log('Firebase authentication verified, current user:', auth.currentUser?.uid);
+    
+    // Wait for auth state to be confirmed via listener
+    await new Promise((resolve) => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            if (user) {
+                console.log('Auth state confirmed, user ID:', user.uid);
+                unsubscribe();
+                resolve();
+            }
+        });
+        
+        // Timeout after 5 seconds
+        setTimeout(() => {
+            unsubscribe();
+            resolve();
+        }, 5000);
+    });
+    
+    // Additional wait to ensure auth token is propagated to Firestore
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Final verification
+    if (!auth.currentUser) {
+        showDebugMessage('ERROR: Authentication failed. User not found.', 'error');
         updateSyncIndicator(false);
         return;
     }
+    
+    console.log('Final auth check - User ID:', auth.currentUser.uid);
+    showDebugMessage('Authenticated! User: ' + auth.currentUser.uid.substring(0, 8) + '...', 'success');
     
     initializeNavigation();
     initializeEventListeners();
@@ -232,9 +302,17 @@ function setupRealtimeListeners() {
         return;
     }
     
+    // Verify authentication before accessing Firestore
+    if (!auth || !auth.currentUser) {
+        showDebugMessage('ERROR: Not authenticated! Cannot access Firestore.', 'error');
+        updateSyncIndicator(false);
+        return;
+    }
+    
     console.log('Setting up Firebase listeners...');
     console.log('Collections:', COLLECTIONS);
     console.log('Database:', db);
+    console.log('Authenticated user:', auth.currentUser.uid);
     
     // Use simple collection listeners (more reliable, works without indexes)
     setupSimpleOrdersListener();
@@ -320,7 +398,14 @@ function setupSimpleOrdersListener() {
         
         // Show specific error messages
         if (error.code === 'permission-denied') {
-            showDebugMessage('Orders: Permission denied. Check Firestore rules.', 'error');
+            const authStatus = auth?.currentUser ? 'Authenticated as: ' + auth.currentUser.uid.substring(0, 8) : 'Not authenticated';
+            showDebugMessage('Orders: Permission denied. Auth: ' + authStatus, 'error');
+            console.error('Permission denied - Auth state:', {
+                hasAuth: !!auth,
+                currentUser: auth?.currentUser?.uid,
+                errorCode: error.code,
+                errorMessage: error.message
+            });
         } else {
             showDebugMessage(`Orders error: ${error.code || error.message}`, 'error');
         }
@@ -376,7 +461,14 @@ function setupSimpleCustomersListener() {
         
         // Show specific error messages
         if (error.code === 'permission-denied') {
-            showDebugMessage('Customers: Permission denied. Check Firestore rules.', 'error');
+            const authStatus = auth?.currentUser ? 'Authenticated as: ' + auth.currentUser.uid.substring(0, 8) : 'Not authenticated';
+            showDebugMessage('Customers: Permission denied. Auth: ' + authStatus, 'error');
+            console.error('Permission denied - Auth state:', {
+                hasAuth: !!auth,
+                currentUser: auth?.currentUser?.uid,
+                errorCode: error.code,
+                errorMessage: error.message
+            });
         } else {
             showDebugMessage(`Customers error: ${error.code || error.message}`, 'error');
         }
