@@ -1,82 +1,127 @@
-// Service Worker for Print and Press PWA
-const CACHE_NAME = 'print-and-press-v1';
+// Update this version number when you deploy a new version
+const APP_VERSION = '1.0.16';
+const CACHE_NAME = `hunting-pro-${APP_VERSION}`;
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/styles.css',
-  '/app.js',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png'
+    './',
+    './index.html',
+    './styles.css',
+    './script.js',
+    './manifest.json'
 ];
 
-// Install event - cache resources
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('Opened cache');
-        return cache.addAll(urlsToCache);
-      })
-  );
-});
-
-// Activate event - clean up old caches
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            console.log('Deleting old cache:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
-});
-
-// Fetch event - serve from cache, fallback to network
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        // Return cached version or fetch from network
-        return response || fetch(event.request).then((response) => {
-          // Don't cache non-GET requests or non-successful responses
-          if (event.request.method !== 'GET' || !response || response.status !== 200) {
-            return response;
-          }
-
-          // Clone the response
-          const responseToCache = response.clone();
-
-          caches.open(CACHE_NAME)
+    console.log('Service Worker installing, version:', APP_VERSION);
+    // Skip waiting to activate new service worker immediately
+    self.skipWaiting();
+    
+    event.waitUntil(
+        caches.open(CACHE_NAME)
             .then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
-
-          return response;
-        });
-      })
-      .catch(() => {
-        // If both cache and network fail, return offline page
-        if (event.request.destination === 'document') {
-          return caches.match('/index.html');
-        }
-      })
-  );
+                console.log('Caching files for version:', APP_VERSION);
+                return cache.addAll(urlsToCache);
+            })
+            .catch((error) => {
+                console.error('Cache failed:', error);
+            })
+    );
 });
 
+self.addEventListener('activate', (event) => {
+    console.log('Service Worker activating, version:', APP_VERSION);
+    event.waitUntil(
+        // Clean up old caches
+        caches.keys().then((cacheNames) => {
+            return Promise.all(
+                cacheNames.map((cacheName) => {
+                    if (cacheName !== CACHE_NAME) {
+                        console.log('Deleting old cache:', cacheName);
+                        return caches.delete(cacheName);
+                    }
+                })
+            );
+        }).then(() => {
+            // Take control of all pages immediately
+            return self.clients.claim();
+        })
+    );
+});
 
+self.addEventListener('fetch', (event) => {
+    const url = new URL(event.request.url);
+    
+    // Never cache API requests - always fetch fresh data
+    const isAPIRequest = url.hostname.includes('openweathermap.org') || 
+                         url.hostname.includes('nominatim.openstreetmap.org') ||
+                         url.hostname.includes('api.') ||
+                         url.pathname.includes('/api/');
+    
+    if (isAPIRequest) {
+        // Network only for API requests - never cache, always fetch fresh
+        event.respondWith(
+            fetch(event.request)
+                .then((fetchResponse) => {
+                    return fetchResponse;
+                })
+                .catch(() => {
+                    // If network fails, return error response
+                    return new Response(JSON.stringify({ error: 'Network request failed' }), {
+                        status: 503,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                })
+        );
+        return;
+    }
+    
+    // For HTML files, always try network first to get updates
+    if (event.request.destination === 'document' || 
+        event.request.url.includes('index.html') ||
+        event.request.url.endsWith('/')) {
+        event.respondWith(
+            fetch(event.request)
+                .then((fetchResponse) => {
+                    // Cache the fresh response
+                    if (fetchResponse && fetchResponse.status === 200) {
+                        const responseToCache = fetchResponse.clone();
+                        caches.open(CACHE_NAME).then((cache) => {
+                            cache.put(event.request, responseToCache);
+                        });
+                    }
+                    return fetchResponse;
+                })
+                .catch(() => {
+                    // If network fails, try cache
+                    return caches.match(event.request);
+                })
+        );
+    } else {
+        // For other resources, use cache first, then network
+        event.respondWith(
+            caches.match(event.request)
+                .then((response) => {
+                    // Return cached version or fetch from network
+                    return response || fetch(event.request).then((fetchResponse) => {
+                        // Cache new responses for future use
+                        if (fetchResponse && fetchResponse.status === 200) {
+                            const responseToCache = fetchResponse.clone();
+                            caches.open(CACHE_NAME).then((cache) => {
+                                cache.put(event.request, responseToCache);
+                            });
+                        }
+                        return fetchResponse;
+                    });
+                })
+        );
+    }
+});
 
-
-
-
-
-
-
-
-
+// Listen for messages from the client
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
+    if (event.data && event.data.type === 'GET_VERSION') {
+        event.ports[0].postMessage({ version: APP_VERSION });
+    }
+});
 

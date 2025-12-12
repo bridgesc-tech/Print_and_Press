@@ -1,71 +1,60 @@
-# Print and Press PWA
+# Hunting Pro - Color Detection PWA
 
-Progressive Web App for mobile order processing and purchase recording.
+A Progressive Web App that uses your iPhone camera to detect red colors (or any color you choose) in real-time.
 
 ## Features
 
-- 📱 **Mobile-First Design** - Optimized for mobile devices
-- 📋 **Order Management** - Create and view orders on the go
-- 💰 **Purchase Recording** - Record income and expenses
-- 🔄 **Real-time Sync** - Automatically syncs with Firebase
-- 📴 **Offline Support** - Works offline with service worker caching
+- 📹 Live camera preview
+- 🎨 Real-time color detection
+- ⚙️ Adjustable color settings (hue, saturation, brightness)
+- 🔔 Visual alerts when color is detected
+- 📱 Works as a PWA - add to home screen
+- 🎯 Customizable detection threshold
 
-## Setup
+## How to Use
 
-1. Install dependencies:
-```bash
-npm install
-```
+1. **Open in Safari** (on iPhone):
+   - Navigate to the folder and open `index.html` in Safari
+   - Or serve it from a web server
 
-2. Configure Firebase:
-   - Update `../shared/firebase-config.js` with your Firebase credentials
+2. **Add to Home Screen**:
+   - Tap the Share button in Safari
+   - Select "Add to Home Screen"
+   - The app will now work like a native app
 
-3. Run development server:
-```bash
-npm run dev
-```
+3. **Using the App**:
+   - Tap "Start Camera" to begin
+   - Grant camera permissions when prompted
+   - Adjust color settings as needed
+   - When the target color is detected, a red overlay will appear
+   - Tap "Stop Camera" when done
 
-4. Build for production:
-```bash
-npm run build
-```
+## Settings Explained
 
-## Deployment to GitHub Pages
+- **Target Color**: The color you want to detect (default: red)
+- **Hue Tolerance**: How close the hue needs to be (0-60°)
+- **Saturation Min**: Minimum color intensity (0-100%)
+- **Brightness Min**: Minimum brightness (0-100%)
+- **Detection Threshold**: Minimum % of frame that must match (1-50%)
 
-1. Build the app:
-```bash
-npm run build
-```
+## Technical Notes
 
-2. Push the `dist` folder to your GitHub repository
+- Uses `getUserMedia` API for camera access
+- Processes video frames using Canvas API
+- Converts RGB to HSV for better color matching
+- Samples pixels for performance (every 4th pixel)
+- Works offline after first load (PWA caching)
 
-3. Enable GitHub Pages in repository settings
+## Browser Compatibility
 
-4. Set the source to the `dist` folder
+- iOS Safari 11.1+
+- Chrome (Android)
+- Edge (mobile)
+- Requires HTTPS for camera access (or localhost)
 
-## PWA Installation
+## Notes
 
-Users can install the PWA by:
-- **Chrome/Edge**: Click the install icon in the address bar
-- **Safari (iOS)**: Tap Share → Add to Home Screen
-- **Firefox**: Menu → Install
-
-## Icons
-
-You'll need to create icon files:
-- `icon-192.png` (192x192 pixels)
-- `icon-512.png` (512x512 pixels)
-
-Place these in the `pwa` directory root.
-
-
-
-
-
-
-
-
-
-
-
+- Camera access requires HTTPS (except localhost)
+- Best performance on newer devices
+- May drain battery faster due to continuous processing
 
