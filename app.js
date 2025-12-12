@@ -1,8 +1,8 @@
 // PWA Main JavaScript
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getFirestore, collection, addDoc, updateDoc, doc, query, where, onSnapshot, orderBy } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
-import { firebaseConfig, COLLECTIONS } from '../shared/firebase-config.js';
-import { Order, OrderStatus } from '../shared/types.js';
+import { firebaseConfig, COLLECTIONS } from './firebase-config.js';
+import { Order, OrderStatus } from './types.js';
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -39,9 +39,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Navigation
 function initializeNavigation() {
+    // Use event delegation on the nav container for better reliability
+    const topNav = document.querySelector('.top-nav');
+    if (topNav) {
+        topNav.addEventListener('click', (e) => {
+            const btn = e.target.closest('.nav-btn');
+            if (btn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const page = btn.getAttribute('data-page');
+                if (page) {
+                    console.log('Navigating to page:', page);
+                    switchPage(page);
+                }
+            }
+        });
+    }
+    
+    // Also set up individual buttons as backup
     const navButtons = document.querySelectorAll('.nav-btn');
     navButtons.forEach(btn => {
-        // Remove any existing listeners
+        btn.style.pointerEvents = 'auto';
+        btn.style.cursor = 'pointer';
+        
+        // Remove any existing listeners by cloning
         const newBtn = btn.cloneNode(true);
         btn.parentNode.replaceChild(newBtn, btn);
         
@@ -50,16 +71,7 @@ function initializeNavigation() {
             e.preventDefault();
             e.stopPropagation();
             const page = newBtn.getAttribute('data-page');
-            if (page) {
-                switchPage(page);
-            }
-        });
-        
-        // Also add touch handler for mobile
-        newBtn.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const page = newBtn.getAttribute('data-page');
+            console.log('Button clicked, page:', page);
             if (page) {
                 switchPage(page);
             }
@@ -138,98 +150,77 @@ function initializeEventListeners() {
 
 // Firebase Realtime Listeners
 function setupRealtimeListeners() {
-    // Try with orderBy first, fallback to simple collection if it fails
-    try {
-        const ordersQuery = query(
-            collection(db, COLLECTIONS.ORDERS),
-            orderBy('createdAt', 'desc')
-        );
-        
-        onSnapshot(ordersQuery, (snapshot) => {
-            orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Sort by createdAt if available, otherwise by id
-            orders.sort((a, b) => {
-                const aDate = a.createdAt || a.updatedAt || '';
-                const bDate = b.createdAt || b.updatedAt || '';
-                return bDate.localeCompare(aDate);
-            });
-            if (currentPage === 'orders') {
-                loadOrders();
-            }
-            updateSyncIndicator(true);
-        }, (error) => {
-            console.warn('Error with ordered query, trying simple collection:', error);
-            // Fallback to simple collection listener
-            setupSimpleOrdersListener();
-        });
-    } catch (error) {
-        console.warn('Error setting up ordered query, using simple collection:', error);
-        setupSimpleOrdersListener();
-    }
+    console.log('Setting up Firebase listeners...');
+    console.log('Collections:', COLLECTIONS);
+    console.log('Database:', db);
     
-    // Try with orderBy first, fallback to simple collection if it fails
-    try {
-        const customersQuery = query(
-            collection(db, COLLECTIONS.CUSTOMERS),
-            orderBy('name', 'asc')
-        );
-        
-        onSnapshot(customersQuery, (snapshot) => {
-            customers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Sort by name if available
-            customers.sort((a, b) => {
-                const aName = (a.name || '').toLowerCase();
-                const bName = (b.name || '').toLowerCase();
-                return aName.localeCompare(bName);
-            });
-            if (currentPage === 'customers') {
-                loadCustomers();
-            }
-        }, (error) => {
-            console.warn('Error with ordered customers query, trying simple collection:', error);
-            // Fallback to simple collection listener
-            setupSimpleCustomersListener();
-        });
-    } catch (error) {
-        console.warn('Error setting up ordered customers query, using simple collection:', error);
-        setupSimpleCustomersListener();
-    }
+    // Use simple collection listeners (more reliable, works without indexes)
+    setupSimpleOrdersListener();
+    setupSimpleCustomersListener();
 }
 
-// Fallback: Simple collection listeners without orderBy
+// Simple collection listeners without orderBy (more reliable)
 function setupSimpleOrdersListener() {
-    onSnapshot(collection(db, COLLECTIONS.ORDERS), (snapshot) => {
-        orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    console.log('Setting up orders listener for collection:', COLLECTIONS.ORDERS);
+    
+    const ordersRef = collection(db, COLLECTIONS.ORDERS);
+    
+    onSnapshot(ordersRef, (snapshot) => {
+        console.log('Orders snapshot received, docs:', snapshot.docs.length);
+        orders = snapshot.docs.map(doc => {
+            const data = doc.data();
+            console.log('Order data:', { id: doc.id, customerName: data.customerName, status: data.status });
+            return { id: doc.id, ...data };
+        });
+        
         // Sort by createdAt if available, otherwise by id
         orders.sort((a, b) => {
             const aDate = a.createdAt || a.updatedAt || '';
             const bDate = b.createdAt || b.updatedAt || '';
             return bDate.localeCompare(aDate);
         });
+        
+        console.log('Total orders loaded:', orders.length);
+        
         if (currentPage === 'orders') {
             loadOrders();
         }
         updateSyncIndicator(true);
     }, (error) => {
         console.error('Error listening to orders:', error);
+        console.error('Error details:', error.code, error.message);
         updateSyncIndicator(false);
     });
 }
 
 function setupSimpleCustomersListener() {
-    onSnapshot(collection(db, COLLECTIONS.CUSTOMERS), (snapshot) => {
-        customers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    console.log('Setting up customers listener for collection:', COLLECTIONS.CUSTOMERS);
+    
+    const customersRef = collection(db, COLLECTIONS.CUSTOMERS);
+    
+    onSnapshot(customersRef, (snapshot) => {
+        console.log('Customers snapshot received, docs:', snapshot.docs.length);
+        customers = snapshot.docs.map(doc => {
+            const data = doc.data();
+            console.log('Customer data:', { id: doc.id, name: data.name });
+            return { id: doc.id, ...data };
+        });
+        
         // Sort by name if available
         customers.sort((a, b) => {
             const aName = (a.name || '').toLowerCase();
             const bName = (b.name || '').toLowerCase();
             return aName.localeCompare(bName);
         });
+        
+        console.log('Total customers loaded:', customers.length);
+        
         if (currentPage === 'customers') {
             loadCustomers();
         }
     }, (error) => {
         console.error('Error listening to customers:', error);
+        console.error('Error details:', error.code, error.message);
     });
 }
 

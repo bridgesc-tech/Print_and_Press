@@ -1,11 +1,13 @@
 // Update this version number when you deploy a new version
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 const CACHE_NAME = `print-and-press-${APP_VERSION}`;
 const urlsToCache = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './firebase-config.js',
+  './types.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

@@ -1,8 +1,8 @@
 {
-  "name": "Print and Press",
-  "short_name": "Print & Press",
+  "name": "Print and Press Test",
+  "short_name": "Print & Press Test",
   "description": "Mobile order processing for Print and Press business",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
