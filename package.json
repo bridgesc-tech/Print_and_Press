@@ -1,6 +1,6 @@
 {
   "name": "print-and-press-pwa",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "PWA for Print and Press - Mobile order processing",
   "type": "module",
   "scripts": {

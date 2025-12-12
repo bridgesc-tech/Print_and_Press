@@ -64,6 +64,7 @@ function showDebugMessage(message, type = 'info') {
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
     console.log('PWA Initializing...');
+    window.appStartTime = Date.now(); // Track when app started
     
     // Check if Firebase is initialized
     if (!db) {
@@ -224,18 +225,39 @@ function setupRealtimeListeners() {
     setupSimpleOrdersListener();
     setupSimpleCustomersListener();
     
-    // Set a timeout to check connection status
+    // Set multiple timeouts to check connection status
     setTimeout(() => {
+        checkSyncStatus();
+    }, 2000);
+    
+    setTimeout(() => {
+        checkSyncStatus();
+    }, 5000);
+    
+    setTimeout(() => {
+        checkSyncStatus();
+    }, 10000);
+}
+
+function checkSyncStatus() {
+    if (ordersListenerActive || customersListenerActive) {
+        // At least one listener is working - mark as synced
+        console.log('At least one listener active, marking as synced');
+        updateSyncIndicator(true);
         if (ordersListenerActive && customersListenerActive) {
-            console.log('Both listeners active, marking as synced');
-            updateSyncIndicator(true);
-            showDebugMessage('Firebase connected!', 'success');
-        } else if (!ordersListenerActive && !customersListenerActive) {
-            showDebugMessage('ERROR: Cannot connect to Firebase. Check internet connection.', 'error');
+            console.log('Both listeners active');
         } else {
-            showDebugMessage('Partially connected. Waiting...', 'info');
+            console.log('Partial connection - orders:', ordersListenerActive, 'customers:', customersListenerActive);
         }
-    }, 3000);
+    } else {
+        // Neither listener is working - but don't show error immediately, might still be connecting
+        console.log('Listeners not active yet - orders:', ordersListenerActive, 'customers:', customersListenerActive);
+        // Only show error after 10 seconds
+        if (Date.now() - window.appStartTime > 10000) {
+            showDebugMessage('ERROR: Cannot connect to Firebase. Check internet and Firebase config.', 'error');
+            updateSyncIndicator(false);
+        }
+    }
 }
 
 // Simple collection listeners without orderBy (more reliable)
@@ -262,23 +284,29 @@ function setupSimpleOrdersListener() {
         });
         
         console.log('Total orders loaded:', orders.length);
-        showDebugMessage(`Orders connected: ${orders.length} found`, 'success');
         
         if (currentPage === 'orders') {
             loadOrders();
         }
         
-        // Update sync indicator if both listeners are active
-        if (ordersListenerActive && customersListenerActive) {
-            updateSyncIndicator(true);
-            showDebugMessage('Firebase synced!', 'success');
+        // Update sync indicator immediately when listener connects
+        updateSyncIndicator(true);
+        console.log('Orders listener connected - sync indicator updated to Synced');
+        
+        if (orders.length > 0) {
+            showDebugMessage(`Orders loaded: ${orders.length}`, 'success');
+        } else {
+            console.log('Orders collection is empty but connected');
         }
     }, (error) => {
         console.error('Error listening to orders:', error);
         console.error('Error details:', error.code, error.message);
         ordersListenerActive = false;
-        updateSyncIndicator(false);
-        showDebugMessage(`Orders error: ${error.code || error.message}`, 'error');
+        // Only show error if customers also failed
+        if (!customersListenerActive) {
+            updateSyncIndicator(false);
+            showDebugMessage(`Orders error: ${error.code || error.message}`, 'error');
+        }
     });
 }
 
@@ -305,23 +333,29 @@ function setupSimpleCustomersListener() {
         });
         
         console.log('Total customers loaded:', customers.length);
-        showDebugMessage(`Customers connected: ${customers.length} found`, 'success');
         
         if (currentPage === 'customers') {
             loadCustomers();
         }
         
-        // Update sync indicator if both listeners are active
-        if (ordersListenerActive && customersListenerActive) {
-            updateSyncIndicator(true);
-            showDebugMessage('Firebase synced!', 'success');
+        // Update sync indicator immediately when listener connects
+        updateSyncIndicator(true);
+        console.log('Customers listener connected - sync indicator updated to Synced');
+        
+        if (customers.length > 0) {
+            showDebugMessage(`Customers loaded: ${customers.length}`, 'success');
+        } else {
+            console.log('Customers collection is empty but connected');
         }
     }, (error) => {
         console.error('Error listening to customers:', error);
         console.error('Error details:', error.code, error.message);
         customersListenerActive = false;
-        updateSyncIndicator(false);
-        showDebugMessage(`Customers error: ${error.code || error.message}`, 'error');
+        // Only show error if orders also failed
+        if (!ordersListenerActive) {
+            updateSyncIndicator(false);
+            showDebugMessage(`Customers error: ${error.code || error.message}`, 'error');
+        }
     });
 }
 
@@ -334,20 +368,21 @@ function updateSyncIndicator(synced) {
     
     const dot = indicator.querySelector('.sync-dot');
     const textSpans = indicator.querySelectorAll('span');
-    const text = textSpans[textSpans.length - 1]; // Get the last span (text content)
+    // Get the text span (should be the second span, after the dot)
+    const text = Array.from(textSpans).find(span => !span.classList.contains('sync-dot')) || textSpans[textSpans.length - 1];
     
-    if (!dot || !text) {
-        console.warn('Sync indicator child elements not found');
+    if (!dot) {
+        console.warn('Sync dot not found');
         return;
     }
     
     if (synced) {
         dot.style.background = '#4ade80';
-        text.textContent = 'Synced';
+        if (text) text.textContent = 'Synced';
         console.log('Sync indicator: Synced');
     } else {
         dot.style.background = '#f59e0b';
-        text.textContent = 'Syncing...';
+        if (text) text.textContent = 'Syncing...';
         console.log('Sync indicator: Syncing...');
     }
 }

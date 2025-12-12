@@ -2,7 +2,7 @@
   "name": "Print and Press Test",
   "short_name": "Print & Press Test",
   "description": "Mobile order processing for Print and Press business",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "start_url": "/Print_and_Press/",
   "scope": "/Print_and_Press/",
   "display": "standalone",

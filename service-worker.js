@@ -1,5 +1,5 @@
 // Update this version number when you deploy a new version
-const APP_VERSION = '1.3.2';
+const APP_VERSION = '1.3.3';
 const CACHE_NAME = `print-and-press-${APP_VERSION}`;
 const urlsToCache = [
   '/Print_and_Press/',
