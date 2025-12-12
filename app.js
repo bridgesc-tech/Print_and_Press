@@ -1,14 +1,16 @@
 // PWA Main JavaScript
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getFirestore, collection, addDoc, updateDoc, doc, query, where, onSnapshot, orderBy } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 import { firebaseConfig, COLLECTIONS } from './firebase-config.js';
 import { Order, OrderStatus } from './types.js';
 
 // Initialize Firebase
-let app, db;
+let app, db, auth;
 try {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
+    auth = getAuth(app);
     console.log('Firebase initialized successfully');
 } catch (error) {
     console.error('Firebase initialization error:', error);
@@ -62,12 +64,12 @@ function showDebugMessage(message, type = 'info') {
 }
 
 // Initialize App
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log('PWA Initializing...');
     window.appStartTime = Date.now(); // Track when app started
     
     // Check if Firebase is initialized
-    if (!db) {
+    if (!db || !auth) {
         showDebugMessage('ERROR: Firebase not initialized! Check firebase-config.js', 'error');
         updateSyncIndicator(false);
         return;
@@ -75,6 +77,19 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize sync indicator to "Syncing..." initially
     updateSyncIndicator(false);
+    
+    // Authenticate with anonymous auth (required for Firestore access)
+    try {
+        showDebugMessage('Authenticating with Firebase...', 'info');
+        await signInAnonymously(auth);
+        console.log('Anonymous authentication successful');
+        showDebugMessage('Authenticated!', 'success');
+    } catch (authError) {
+        console.error('Authentication error:', authError);
+        showDebugMessage('Auth error: ' + (authError.message || authError.code), 'error');
+        updateSyncIndicator(false);
+        return;
+    }
     
     initializeNavigation();
     initializeEventListeners();
@@ -302,10 +317,17 @@ function setupSimpleOrdersListener() {
         console.error('Error listening to orders:', error);
         console.error('Error details:', error.code, error.message);
         ordersListenerActive = false;
-        // Only show error if customers also failed
+        
+        // Show specific error messages
+        if (error.code === 'permission-denied') {
+            showDebugMessage('Orders: Permission denied. Check Firestore rules.', 'error');
+        } else {
+            showDebugMessage(`Orders error: ${error.code || error.message}`, 'error');
+        }
+        
+        // Only update sync indicator if customers also failed
         if (!customersListenerActive) {
             updateSyncIndicator(false);
-            showDebugMessage(`Orders error: ${error.code || error.message}`, 'error');
         }
     });
 }
@@ -351,10 +373,17 @@ function setupSimpleCustomersListener() {
         console.error('Error listening to customers:', error);
         console.error('Error details:', error.code, error.message);
         customersListenerActive = false;
-        // Only show error if orders also failed
+        
+        // Show specific error messages
+        if (error.code === 'permission-denied') {
+            showDebugMessage('Customers: Permission denied. Check Firestore rules.', 'error');
+        } else {
+            showDebugMessage(`Customers error: ${error.code || error.message}`, 'error');
+        }
+        
+        // Only update sync indicator if orders also failed
         if (!ordersListenerActive) {
             updateSyncIndicator(false);
-            showDebugMessage(`Customers error: ${error.code || error.message}`, 'error');
         }
     });
 }
