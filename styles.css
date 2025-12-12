@@ -154,10 +154,48 @@ body {
     padding: 1rem;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     transition: transform 0.2s;
+    cursor: pointer;
 }
 
 .order-card:active {
     transform: scale(0.98);
+}
+
+.order-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* Autocomplete dropdown */
+.autocomplete-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1002;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 0.25rem;
+    pointer-events: auto;
+}
+
+.autocomplete-item {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background-color 0.2s;
+}
+
+.autocomplete-item:last-child {
+    border-bottom: none;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.selected {
+    background: #f0f0ff;
 }
 
 .order-card-header {
@@ -231,6 +269,7 @@ body {
 
 .form-group {
     margin-bottom: 1.25rem;
+    position: relative;
 }
 
 .form-group label {

@@ -21,6 +21,7 @@ let currentPage = 'orders';
 let orders = [];
 let customers = [];
 let itemCounter = 1;
+let editingOrderId = null;
 
 // Debug message display (shows on-screen messages for mobile debugging)
 function showDebugMessage(message, type = 'info') {
@@ -242,6 +243,20 @@ function switchPage(page) {
         loadOrders();
     } else if (page === 'customers') {
         loadCustomers();
+    } else if (page === 'new-order') {
+        // Reset form if not editing
+        if (!editingOrderId) {
+            const pageHeader = document.querySelector('#new-order .page-header h2');
+            if (pageHeader) {
+                pageHeader.textContent = 'New Order';
+            }
+            const submitBtn = document.getElementById('submitOrderBtn');
+            if (submitBtn) {
+                submitBtn.textContent = 'Create Order';
+            }
+        }
+        // Setup autocomplete
+        setupCustomerAutocomplete();
     }
 }
 
@@ -545,7 +560,7 @@ function loadOrders() {
         });
         
         return `
-            <div class="order-card">
+            <div class="order-card" onclick="editOrder('${order.id}')">
                 <div class="order-card-header">
                     <div class="order-customer">${order.customerName || 'Unknown Customer'}</div>
                     <span class="order-status ${statusClass}">${order.status.replace('_', ' ')}</span>
@@ -594,6 +609,7 @@ async function handleNewOrder(e) {
     }
 
     const totalAmount = parseFloat(formData.get('totalAmount')) || 0;
+    const status = formData.get('status') || OrderStatus.PENDING;
 
     const orderData = {
         customerName: formData.get('customerName'),
@@ -601,29 +617,49 @@ async function handleNewOrder(e) {
         customerEmail: formData.get('customerEmail') || '',
         items: items,
         totalAmount: totalAmount,
-        status: OrderStatus.PENDING,
+        status: status,
         notes: formData.get('notes') || '',
         dueDate: formData.get('dueDate') || null,
-        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
     };
 
     try {
-        await addDoc(collection(db, COLLECTIONS.ORDERS), orderData);
+        if (editingOrderId) {
+            // Update existing order
+            const orderRef = doc(db, COLLECTIONS.ORDERS, editingOrderId);
+            await updateDoc(orderRef, orderData);
+            alert('Order updated successfully!');
+            editingOrderId = null;
+        } else {
+            // Create new order
+            orderData.createdAt = new Date().toISOString();
+            await addDoc(collection(db, COLLECTIONS.ORDERS), orderData);
+            alert('Order created successfully!');
+        }
         
         // Reset form
         e.target.reset();
         itemCounter = 1;
+        editingOrderId = null;
         document.getElementById('orderItems').innerHTML = createOrderItemHTML(1);
         document.getElementById('totalAmountInput').value = '0.00';
+        document.getElementById('customerIdInput').value = '';
+        const pageHeader = document.querySelector('#new-order .page-header h2');
+        if (pageHeader) {
+            pageHeader.textContent = 'New Order';
+        }
+        const submitBtn = document.getElementById('submitOrderBtn');
+        if (submitBtn) {
+            submitBtn.textContent = 'Create Order';
+        }
         setupImageUpload(1);
+        setupCustomerAutocomplete();
         
         // Show success and switch to orders page
-        alert('Order created successfully!');
         switchPage('orders');
     } catch (error) {
-        console.error('Error creating order:', error);
-        alert('Error creating order. Please try again.');
+        console.error('Error saving order:', error);
+        alert('Error saving order. Please try again.');
     }
 }
 
@@ -735,7 +771,202 @@ function removeDesignImage(itemNum) {
     if (fileInput) fileInput.value = '';
 }
 
+// Edit Order
+function editOrder(orderId) {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) {
+        alert('Order not found');
+        return;
+    }
+    
+    editingOrderId = orderId;
+    
+    // Update page header
+    const pageHeader = document.querySelector('#new-order .page-header h2');
+    if (pageHeader) {
+        pageHeader.textContent = `Edit Order${order.orderNumber ? ` #${order.orderNumber}` : ''}`;
+    }
+    
+    // Update submit button
+    const submitBtn = document.getElementById('submitOrderBtn');
+    if (submitBtn) {
+        submitBtn.textContent = 'Update Order';
+    }
+    
+    // Populate form
+    const form = document.getElementById('newOrderForm');
+    if (form) {
+        form.querySelector('[name="customerName"]').value = order.customerName || '';
+        form.querySelector('[name="customerPhone"]').value = order.customerPhone || '';
+        form.querySelector('[name="customerEmail"]').value = order.customerEmail || '';
+        form.querySelector('[name="totalAmount"]').value = order.totalAmount || '0.00';
+        form.querySelector('[name="notes"]').value = order.notes || '';
+        form.querySelector('[name="dueDate"]').value = order.dueDate ? order.dueDate.split('T')[0] : '';
+        form.querySelector('[name="status"]').value = order.status || 'pending';
+        
+        // Set customer ID if available
+        if (order.customerId) {
+            document.getElementById('customerIdInput').value = order.customerId;
+        }
+        
+        // Populate items
+        const orderItems = document.getElementById('orderItems');
+        if (orderItems && order.items && order.items.length > 0) {
+            itemCounter = 0;
+            orderItems.innerHTML = '';
+            order.items.forEach((item, index) => {
+                itemCounter = index + 1;
+                const itemHTML = createOrderItemHTML(itemCounter, item);
+                orderItems.insertAdjacentHTML('beforeend', itemHTML);
+                setupImageUpload(itemCounter);
+            });
+        } else {
+            itemCounter = 1;
+            orderItems.innerHTML = createOrderItemHTML(1);
+            setupImageUpload(1);
+        }
+    }
+    
+    // Switch to new-order page
+    switchPage('new-order');
+    
+    // Setup autocomplete
+    setupCustomerAutocomplete();
+}
+
+// Setup Customer Autocomplete
+function setupCustomerAutocomplete() {
+    const customerNameInput = document.getElementById('customerNameInput');
+    const customerPhoneInput = document.querySelector('input[name="customerPhone"]');
+    const customerEmailInput = document.querySelector('input[name="customerEmail"]');
+    const autocompleteDropdown = document.getElementById('customerAutocomplete');
+    
+    if (!customerNameInput || !autocompleteDropdown) {
+        return;
+    }
+    
+    // Only setup autocomplete for new orders (not when editing)
+    if (editingOrderId) {
+        return;
+    }
+    
+    let selectedIndex = -1;
+    let filteredCustomers = [];
+    
+    // Remove existing listeners by cloning
+    const newInput = customerNameInput.cloneNode(true);
+    customerNameInput.parentNode.replaceChild(newInput, customerNameInput);
+    
+    const getCustomers = () => {
+        if (customers && Array.isArray(customers) && customers.length > 0) {
+            return customers;
+        }
+        return [];
+    };
+    
+    newInput.addEventListener('input', (e) => {
+        const query = e.target.value.trim().toLowerCase();
+        
+        // Clear customerId when user manually types
+        const customerIdInput = document.getElementById('customerIdInput');
+        if (customerIdInput && !e.target.dataset.autocompleteSelecting) {
+            customerIdInput.value = '';
+        }
+        
+        if (query.length < 1) {
+            autocompleteDropdown.style.display = 'none';
+            return;
+        }
+        
+        const customersList = getCustomers();
+        
+        if (customersList.length === 0) {
+            autocompleteDropdown.style.display = 'none';
+            return;
+        }
+        
+        // Filter customers by name
+        filteredCustomers = customersList.filter(c => 
+            c && c.name && typeof c.name === 'string' && c.name.toLowerCase().includes(query)
+        ).slice(0, 5);
+        
+        if (filteredCustomers.length > 0) {
+            autocompleteDropdown.innerHTML = filteredCustomers.map((customer, index) => `
+                <div class="autocomplete-item" data-index="${index}" data-customer-id="${customer.id}">
+                    <strong>${customer.name}</strong>
+                    ${customer.phone ? `<span style="color: #666; font-size: 0.85rem;"> • ${customer.phone}</span>` : ''}
+                    ${customer.email ? `<span style="color: #666; font-size: 0.85rem;"> • ${customer.email}</span>` : ''}
+                </div>
+            `).join('');
+            autocompleteDropdown.style.display = 'block';
+            selectedIndex = -1;
+        } else {
+            autocompleteDropdown.style.display = 'none';
+        }
+    });
+    
+    newInput.addEventListener('keydown', (e) => {
+        if (autocompleteDropdown.style.display === 'none') return;
+        
+        const items = autocompleteDropdown.querySelectorAll('.autocomplete-item');
+        
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+            items.forEach((item, idx) => {
+                item.classList.toggle('selected', idx === selectedIndex);
+            });
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            selectedIndex = Math.max(selectedIndex - 1, -1);
+            items.forEach((item, idx) => {
+                item.classList.toggle('selected', idx === selectedIndex);
+            });
+        } else if (e.key === 'Enter' && selectedIndex >= 0) {
+            e.preventDefault();
+            const selectedItem = items[selectedIndex];
+            selectCustomer(selectedItem, newInput, customerPhoneInput, customerEmailInput, autocompleteDropdown);
+        } else if (e.key === 'Escape') {
+            autocompleteDropdown.style.display = 'none';
+        }
+    });
+    
+    // Handle clicks on autocomplete items
+    autocompleteDropdown.addEventListener('click', (e) => {
+        const item = e.target.closest('.autocomplete-item');
+        if (item) {
+            selectCustomer(item, newInput, customerPhoneInput, customerEmailInput, autocompleteDropdown);
+        }
+    });
+    
+    function selectCustomer(item, nameInput, phoneInput, emailInput, dropdown) {
+        const customerId = item.getAttribute('data-customer-id');
+        const customer = customers.find(c => c && c.id === customerId);
+        
+        if (customer) {
+            nameInput.dataset.autocompleteSelecting = 'true';
+            nameInput.value = customer.name;
+            if (phoneInput) phoneInput.value = customer.phone || '';
+            if (emailInput) emailInput.value = customer.email || '';
+            const customerIdInput = document.getElementById('customerIdInput');
+            if (customerIdInput) customerIdInput.value = customerId;
+            dropdown.style.display = 'none';
+            setTimeout(() => {
+                delete nameInput.dataset.autocompleteSelecting;
+            }, 100);
+        }
+    }
+    
+    // Hide dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!newInput.contains(e.target) && !autocompleteDropdown.contains(e.target)) {
+            autocompleteDropdown.style.display = 'none';
+        }
+    });
+}
+
 // Make functions global
+window.editOrder = editOrder;
 window.removeDesignImage = removeDesignImage;
 window.removeOrderItem = (itemNum) => {
     const item = document.querySelector(`.order-item[data-item-num="${itemNum}"]`);
