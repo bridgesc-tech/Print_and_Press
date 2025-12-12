@@ -5,8 +5,14 @@ import { firebaseConfig, COLLECTIONS } from './firebase-config.js';
 import { Order, OrderStatus } from './types.js';
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+let app, db;
+try {
+    app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    console.log('Firebase initialized successfully');
+} catch (error) {
+    console.error('Firebase initialization error:', error);
+}
 
 // State
 let currentPage = 'orders';
@@ -14,9 +20,57 @@ let orders = [];
 let customers = [];
 let itemCounter = 1;
 
+// Debug message display (shows on-screen messages for mobile debugging)
+function showDebugMessage(message, type = 'info') {
+    // Only show errors and important messages to avoid clutter
+    if (type === 'info' && !message.includes('error') && !message.includes('Error')) {
+        console.log(message);
+        return; // Don't show info messages on screen, just log them
+    }
+    
+    // Remove existing debug message
+    const existing = document.getElementById('debugMessage');
+    if (existing) existing.remove();
+    
+    const debugMsg = document.createElement('div');
+    debugMsg.id = 'debugMessage';
+    debugMsg.style.cssText = `
+        position: fixed;
+        top: 120px;
+        left: 1rem;
+        right: 1rem;
+        background: ${type === 'error' ? '#dc3545' : type === 'success' ? '#28a745' : '#667eea'};
+        color: white;
+        padding: 0.75rem;
+        border-radius: 8px;
+        z-index: 10000;
+        font-size: 0.85rem;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        text-align: center;
+    `;
+    debugMsg.textContent = message;
+    document.body.appendChild(debugMsg);
+    
+    console.log('[DEBUG]', message);
+    
+    // Auto-remove after 5 seconds (or 10 seconds for errors)
+    setTimeout(() => {
+        if (debugMsg.parentNode) {
+            debugMsg.remove();
+        }
+    }, type === 'error' ? 10000 : 5000);
+}
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
     console.log('PWA Initializing...');
+    
+    // Check if Firebase is initialized
+    if (!db) {
+        showDebugMessage('ERROR: Firebase not initialized! Check firebase-config.js', 'error');
+        updateSyncIndicator(false);
+        return;
+    }
     
     // Initialize sync indicator to "Syncing..." initially
     updateSyncIndicator(false);
@@ -157,6 +211,11 @@ let ordersListenerActive = false;
 let customersListenerActive = false;
 
 function setupRealtimeListeners() {
+    if (!db) {
+        showDebugMessage('ERROR: Database not available!', 'error');
+        return;
+    }
+    
     console.log('Setting up Firebase listeners...');
     console.log('Collections:', COLLECTIONS);
     console.log('Database:', db);
@@ -165,13 +224,18 @@ function setupRealtimeListeners() {
     setupSimpleOrdersListener();
     setupSimpleCustomersListener();
     
-    // Set a timeout to mark as synced if both listeners are active (even with 0 data)
+    // Set a timeout to check connection status
     setTimeout(() => {
         if (ordersListenerActive && customersListenerActive) {
             console.log('Both listeners active, marking as synced');
             updateSyncIndicator(true);
+            showDebugMessage('Firebase connected!', 'success');
+        } else if (!ordersListenerActive && !customersListenerActive) {
+            showDebugMessage('ERROR: Cannot connect to Firebase. Check internet connection.', 'error');
+        } else {
+            showDebugMessage('Partially connected. Waiting...', 'info');
         }
-    }, 2000);
+    }, 3000);
 }
 
 // Simple collection listeners without orderBy (more reliable)
@@ -198,6 +262,7 @@ function setupSimpleOrdersListener() {
         });
         
         console.log('Total orders loaded:', orders.length);
+        showDebugMessage(`Orders connected: ${orders.length} found`, 'success');
         
         if (currentPage === 'orders') {
             loadOrders();
@@ -206,12 +271,14 @@ function setupSimpleOrdersListener() {
         // Update sync indicator if both listeners are active
         if (ordersListenerActive && customersListenerActive) {
             updateSyncIndicator(true);
+            showDebugMessage('Firebase synced!', 'success');
         }
     }, (error) => {
         console.error('Error listening to orders:', error);
         console.error('Error details:', error.code, error.message);
         ordersListenerActive = false;
         updateSyncIndicator(false);
+        showDebugMessage(`Orders error: ${error.code || error.message}`, 'error');
     });
 }
 
@@ -238,6 +305,7 @@ function setupSimpleCustomersListener() {
         });
         
         console.log('Total customers loaded:', customers.length);
+        showDebugMessage(`Customers connected: ${customers.length} found`, 'success');
         
         if (currentPage === 'customers') {
             loadCustomers();
@@ -246,12 +314,14 @@ function setupSimpleCustomersListener() {
         // Update sync indicator if both listeners are active
         if (ordersListenerActive && customersListenerActive) {
             updateSyncIndicator(true);
+            showDebugMessage('Firebase synced!', 'success');
         }
     }, (error) => {
         console.error('Error listening to customers:', error);
         console.error('Error details:', error.code, error.message);
         customersListenerActive = false;
         updateSyncIndicator(false);
+        showDebugMessage(`Customers error: ${error.code || error.message}`, 'error');
     });
 }
 
