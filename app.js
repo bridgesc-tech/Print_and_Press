@@ -17,6 +17,10 @@ let itemCounter = 1;
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
     console.log('PWA Initializing...');
+    
+    // Initialize sync indicator to "Syncing..." initially
+    updateSyncIndicator(false);
+    
     initializeNavigation();
     initializeEventListeners();
     setupRealtimeListeners();
@@ -149,6 +153,9 @@ function initializeEventListeners() {
 }
 
 // Firebase Realtime Listeners
+let ordersListenerActive = false;
+let customersListenerActive = false;
+
 function setupRealtimeListeners() {
     console.log('Setting up Firebase listeners...');
     console.log('Collections:', COLLECTIONS);
@@ -157,6 +164,14 @@ function setupRealtimeListeners() {
     // Use simple collection listeners (more reliable, works without indexes)
     setupSimpleOrdersListener();
     setupSimpleCustomersListener();
+    
+    // Set a timeout to mark as synced if both listeners are active (even with 0 data)
+    setTimeout(() => {
+        if (ordersListenerActive && customersListenerActive) {
+            console.log('Both listeners active, marking as synced');
+            updateSyncIndicator(true);
+        }
+    }, 2000);
 }
 
 // Simple collection listeners without orderBy (more reliable)
@@ -167,6 +182,8 @@ function setupSimpleOrdersListener() {
     
     onSnapshot(ordersRef, (snapshot) => {
         console.log('Orders snapshot received, docs:', snapshot.docs.length);
+        ordersListenerActive = true;
+        
         orders = snapshot.docs.map(doc => {
             const data = doc.data();
             console.log('Order data:', { id: doc.id, customerName: data.customerName, status: data.status });
@@ -185,10 +202,15 @@ function setupSimpleOrdersListener() {
         if (currentPage === 'orders') {
             loadOrders();
         }
-        updateSyncIndicator(true);
+        
+        // Update sync indicator if both listeners are active
+        if (ordersListenerActive && customersListenerActive) {
+            updateSyncIndicator(true);
+        }
     }, (error) => {
         console.error('Error listening to orders:', error);
         console.error('Error details:', error.code, error.message);
+        ordersListenerActive = false;
         updateSyncIndicator(false);
     });
 }
@@ -200,6 +222,8 @@ function setupSimpleCustomersListener() {
     
     onSnapshot(customersRef, (snapshot) => {
         console.log('Customers snapshot received, docs:', snapshot.docs.length);
+        customersListenerActive = true;
+        
         customers = snapshot.docs.map(doc => {
             const data = doc.data();
             console.log('Customer data:', { id: doc.id, name: data.name });
@@ -218,23 +242,43 @@ function setupSimpleCustomersListener() {
         if (currentPage === 'customers') {
             loadCustomers();
         }
+        
+        // Update sync indicator if both listeners are active
+        if (ordersListenerActive && customersListenerActive) {
+            updateSyncIndicator(true);
+        }
     }, (error) => {
         console.error('Error listening to customers:', error);
         console.error('Error details:', error.code, error.message);
+        customersListenerActive = false;
+        updateSyncIndicator(false);
     });
 }
 
 function updateSyncIndicator(synced) {
     const indicator = document.getElementById('syncIndicator');
+    if (!indicator) {
+        console.warn('Sync indicator element not found');
+        return;
+    }
+    
     const dot = indicator.querySelector('.sync-dot');
-    const text = indicator.querySelector('span:last-child');
+    const textSpans = indicator.querySelectorAll('span');
+    const text = textSpans[textSpans.length - 1]; // Get the last span (text content)
+    
+    if (!dot || !text) {
+        console.warn('Sync indicator child elements not found');
+        return;
+    }
     
     if (synced) {
         dot.style.background = '#4ade80';
         text.textContent = 'Synced';
+        console.log('Sync indicator: Synced');
     } else {
         dot.style.background = '#f59e0b';
         text.textContent = 'Syncing...';
+        console.log('Sync indicator: Syncing...');
     }
 }
 
