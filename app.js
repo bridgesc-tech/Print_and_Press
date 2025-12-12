@@ -582,7 +582,7 @@ function showUpdatePrompt() {
     prompt.id = 'updatePrompt';
     prompt.style.cssText = `
         position: fixed;
-        bottom: 100px;
+        bottom: 2rem;
         left: 1rem;
         right: 1rem;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
