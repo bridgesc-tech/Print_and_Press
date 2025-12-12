@@ -503,16 +503,158 @@ async function handleCustomerSubmit(e, customer = null) {
     }
 }
 
-// Service Worker Registration
+// Service Worker Registration and Update Checking
+let updateAvailable = false;
+let updateServiceWorker = null;
+let registration = null;
+
 if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js')
-            .then(registration => {
-                console.log('Service Worker registered:', registration);
-            })
-            .catch(error => {
-                console.log('Service Worker registration failed:', error);
+    window.addEventListener('load', async () => {
+        try {
+            // VitePWA generates service worker at /sw.js
+            registration = await navigator.serviceWorker.register('/sw.js');
+            
+            console.log('Service Worker registered:', registration);
+            
+            // Check for updates every hour
+            setInterval(() => {
+                if (registration) {
+                    registration.update();
+                }
+            }, 60 * 60 * 1000);
+            
+            // Listen for service worker updates
+            registration.addEventListener('updatefound', () => {
+                const newWorker = registration.installing;
+                if (newWorker) {
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // New service worker is available
+                            updateAvailable = true;
+                            updateServiceWorker = newWorker;
+                            showUpdatePrompt();
+                        } else if (newWorker.state === 'activated') {
+                            // Service worker activated, reload if needed
+                            if (updateAvailable) {
+                                window.location.reload();
+                            }
+                        }
+                    });
+                }
             });
+            
+            // Listen for controller change (update activated)
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (updateAvailable) {
+                    // Reload to use new version
+                    window.location.reload();
+                }
+            });
+            
+            // Check for updates on page load
+            if (registration.waiting) {
+                updateAvailable = true;
+                updateServiceWorker = registration.waiting;
+                showUpdatePrompt();
+            }
+        } catch (error) {
+            console.log('Service Worker registration failed:', error);
+            // Fallback: try manual service worker
+            try {
+                registration = await navigator.serviceWorker.register('/service-worker.js');
+                console.log('Fallback Service Worker registered');
+            } catch (fallbackError) {
+                console.log('Fallback Service Worker registration also failed:', fallbackError);
+            }
+        }
     });
 }
+
+// Show Update Prompt
+function showUpdatePrompt() {
+    // Remove existing prompt if any
+    const existingPrompt = document.getElementById('updatePrompt');
+    if (existingPrompt) {
+        existingPrompt.remove();
+    }
+    
+    const prompt = document.createElement('div');
+    prompt.id = 'updatePrompt';
+    prompt.style.cssText = `
+        position: fixed;
+        bottom: 100px;
+        left: 1rem;
+        right: 1rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    `;
+    
+    prompt.innerHTML = `
+        <div style="font-weight: 600; font-size: 1.1rem;">Update Available</div>
+        <div style="font-size: 0.9rem; opacity: 0.9;">A new version of the app is available. Would you like to update now?</div>
+        <div style="display: flex; gap: 0.5rem;">
+            <button id="updateNowBtn" style="flex: 1; padding: 0.75rem; background: white; color: #667eea; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                Update Now
+            </button>
+            <button id="updateLaterBtn" style="flex: 1; padding: 0.75rem; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; font-weight: 600; cursor: pointer;">
+                Later
+            </button>
+        </div>
+    `;
+    
+    document.body.appendChild(prompt);
+    
+    // Update Now button
+    document.getElementById('updateNowBtn').addEventListener('click', async () => {
+        if (updateServiceWorker) {
+            // Send skip waiting message to service worker
+            updateServiceWorker.postMessage({ type: 'SKIP_WAITING' });
+            
+            // Wait a moment for the service worker to activate
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Reload the page to use the new version
+            window.location.reload();
+        } else if (registration && registration.waiting) {
+            // Fallback: send message to waiting service worker
+            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+            await new Promise(resolve => setTimeout(resolve, 500));
+            window.location.reload();
+        }
+        prompt.remove();
+        updateAvailable = false;
+    });
+    
+    // Later button
+    document.getElementById('updateLaterBtn').addEventListener('click', () => {
+        prompt.remove();
+    });
+}
+
+// Check for updates on app focus
+window.addEventListener('focus', () => {
+    if (registration) {
+        registration.update();
+    } else if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then(reg => {
+            if (reg) {
+                reg.update();
+            }
+        });
+    }
+});
+
+// Also check when coming back online
+window.addEventListener('online', () => {
+    if (registration) {
+        registration.update();
+    }
+});
 

@@ -4,7 +4,9 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig({
   plugins: [
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
+      filename: 'sw.js',
+      strategies: 'generateSW',
       includeAssets: ['icon-192.png', 'icon-512.png'],
       manifest: {
         name: 'Print and Press',
@@ -25,7 +27,26 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/www\.gstatic\.com\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'firebase-cache',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365 // 1 year
+              }
+            }
+          }
+        ],
+        skipWaiting: false,
+        clientsClaim: false
+      },
+      devOptions: {
+        enabled: true,
+        type: 'module'
       }
     })
   ],

@@ -478,6 +478,22 @@ body {
     color: #666;
 }
 
+/* Update Prompt Animation */
+@keyframes slideUp {
+    from {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+#updatePrompt {
+    animation: slideUp 0.3s ease-out;
+}
+
 /* Landscape orientation */
 @media (orientation: landscape) and (max-height: 500px) {
     .app-header h1 {
