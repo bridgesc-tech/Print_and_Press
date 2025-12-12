@@ -2,15 +2,15 @@
 const APP_VERSION = '1.3.1';
 const CACHE_NAME = `print-and-press-${APP_VERSION}`;
 const urlsToCache = [
-  './',
-  './index.html',
-  './styles.css',
-  './app.js',
-  './firebase-config.js',
-  './types.js',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
+  '/Print_and_Press/',
+  '/Print_and_Press/index.html',
+  '/Print_and_Press/styles.css',
+  '/Print_and_Press/app.js',
+  '/Print_and_Press/firebase-config.js',
+  '/Print_and_Press/types.js',
+  '/Print_and_Press/manifest.json',
+  '/Print_and_Press/icon-192.png',
+  '/Print_and_Press/icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {

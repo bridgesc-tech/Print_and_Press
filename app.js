@@ -642,10 +642,7 @@ class UpdateManager {
         }
         
         try {
-            // Try current directory first, then root
-            this.registration = await navigator.serviceWorker.register('./service-worker.js', { scope: './' })
-                .catch(() => navigator.serviceWorker.register('/service-worker.js', { scope: '/' }))
-                .catch(() => navigator.serviceWorker.register('service-worker.js', { scope: './' }));
+            this.registration = await navigator.serviceWorker.register('/Print_and_Press/service-worker.js', { scope: '/Print_and_Press/' });
             console.log('Service Worker registered:', this.registration);
             
             // Check for updates immediately
