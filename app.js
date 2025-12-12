@@ -16,11 +16,16 @@ let itemCounter = 1;
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('PWA Initializing...');
     initializeNavigation();
     initializeEventListeners();
     setupRealtimeListeners();
-    loadOrders();
-    loadCustomers();
+    
+    // Load initial data after a short delay to ensure Firebase is ready
+    setTimeout(() => {
+        loadOrders();
+        loadCustomers();
+    }, 500);
     
     // Set today's date as default for date inputs
     const dueDateInput = document.querySelector('input[name="dueDate"]');
@@ -28,15 +33,36 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize first item's image upload
     setupImageUpload(1);
+    
+    console.log('PWA Initialized');
 });
 
 // Navigation
 function initializeNavigation() {
     const navButtons = document.querySelectorAll('.nav-btn');
     navButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const page = btn.getAttribute('data-page');
-            switchPage(page);
+        // Remove any existing listeners
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+        
+        // Add click handler
+        newBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const page = newBtn.getAttribute('data-page');
+            if (page) {
+                switchPage(page);
+            }
+        });
+        
+        // Also add touch handler for mobile
+        newBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const page = newBtn.getAttribute('data-page');
+            if (page) {
+                switchPage(page);
+            }
         });
     });
 }
@@ -112,13 +138,74 @@ function initializeEventListeners() {
 
 // Firebase Realtime Listeners
 function setupRealtimeListeners() {
-    const ordersQuery = query(
-        collection(db, COLLECTIONS.ORDERS),
-        orderBy('createdAt', 'desc')
-    );
+    // Try with orderBy first, fallback to simple collection if it fails
+    try {
+        const ordersQuery = query(
+            collection(db, COLLECTIONS.ORDERS),
+            orderBy('createdAt', 'desc')
+        );
+        
+        onSnapshot(ordersQuery, (snapshot) => {
+            orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Sort by createdAt if available, otherwise by id
+            orders.sort((a, b) => {
+                const aDate = a.createdAt || a.updatedAt || '';
+                const bDate = b.createdAt || b.updatedAt || '';
+                return bDate.localeCompare(aDate);
+            });
+            if (currentPage === 'orders') {
+                loadOrders();
+            }
+            updateSyncIndicator(true);
+        }, (error) => {
+            console.warn('Error with ordered query, trying simple collection:', error);
+            // Fallback to simple collection listener
+            setupSimpleOrdersListener();
+        });
+    } catch (error) {
+        console.warn('Error setting up ordered query, using simple collection:', error);
+        setupSimpleOrdersListener();
+    }
     
-    onSnapshot(ordersQuery, (snapshot) => {
+    // Try with orderBy first, fallback to simple collection if it fails
+    try {
+        const customersQuery = query(
+            collection(db, COLLECTIONS.CUSTOMERS),
+            orderBy('name', 'asc')
+        );
+        
+        onSnapshot(customersQuery, (snapshot) => {
+            customers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Sort by name if available
+            customers.sort((a, b) => {
+                const aName = (a.name || '').toLowerCase();
+                const bName = (b.name || '').toLowerCase();
+                return aName.localeCompare(bName);
+            });
+            if (currentPage === 'customers') {
+                loadCustomers();
+            }
+        }, (error) => {
+            console.warn('Error with ordered customers query, trying simple collection:', error);
+            // Fallback to simple collection listener
+            setupSimpleCustomersListener();
+        });
+    } catch (error) {
+        console.warn('Error setting up ordered customers query, using simple collection:', error);
+        setupSimpleCustomersListener();
+    }
+}
+
+// Fallback: Simple collection listeners without orderBy
+function setupSimpleOrdersListener() {
+    onSnapshot(collection(db, COLLECTIONS.ORDERS), (snapshot) => {
         orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Sort by createdAt if available, otherwise by id
+        orders.sort((a, b) => {
+            const aDate = a.createdAt || a.updatedAt || '';
+            const bDate = b.createdAt || b.updatedAt || '';
+            return bDate.localeCompare(aDate);
+        });
         if (currentPage === 'orders') {
             loadOrders();
         }
@@ -127,14 +214,17 @@ function setupRealtimeListeners() {
         console.error('Error listening to orders:', error);
         updateSyncIndicator(false);
     });
-    
-    const customersQuery = query(
-        collection(db, COLLECTIONS.CUSTOMERS),
-        orderBy('name', 'asc')
-    );
-    
-    onSnapshot(customersQuery, (snapshot) => {
+}
+
+function setupSimpleCustomersListener() {
+    onSnapshot(collection(db, COLLECTIONS.CUSTOMERS), (snapshot) => {
         customers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Sort by name if available
+        customers.sort((a, b) => {
+            const aName = (a.name || '').toLowerCase();
+            const bName = (b.name || '').toLowerCase();
+            return aName.localeCompare(bName);
+        });
         if (currentPage === 'customers') {
             loadCustomers();
         }
@@ -159,15 +249,24 @@ function updateSyncIndicator(synced) {
 
 // Load Orders
 function loadOrders() {
-    const statusFilter = document.getElementById('orderFilter').value;
+    const ordersListEl = document.getElementById('ordersList');
+    if (!ordersListEl) {
+        console.warn('Orders list element not found');
+        return;
+    }
+    
+    console.log('Loading orders, total:', orders.length);
+    const statusFilter = document.getElementById('orderFilter')?.value || 'all';
     let filteredOrders = orders;
 
     if (statusFilter !== 'all') {
         filteredOrders = orders.filter(o => o.status === statusFilter);
     }
 
+    console.log('Filtered orders:', filteredOrders.length);
+
     if (filteredOrders.length === 0) {
-        document.getElementById('ordersList').innerHTML = `
+        ordersListEl.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">📋</div>
                 <p>No orders found</p>
@@ -200,7 +299,8 @@ function loadOrders() {
         `;
     }).join('');
 
-    document.getElementById('ordersList').innerHTML = ordersHtml;
+    ordersListEl.innerHTML = ordersHtml;
+    console.log('Orders displayed:', filteredOrders.length);
 }
 
 // Handle New Order
@@ -392,6 +492,13 @@ function addOrderItem() {
 
 // Load Customers
 function loadCustomers(searchQuery = '') {
+    const customersList = document.getElementById('customersList');
+    if (!customersList) {
+        console.warn('Customers list element not found');
+        return;
+    }
+    
+    console.log('Loading customers, total:', customers.length);
     let filteredCustomers = customers;
     
     if (searchQuery && searchQuery.trim() !== '') {
@@ -403,8 +510,7 @@ function loadCustomers(searchQuery = '') {
         );
     }
     
-    const customersList = document.getElementById('customersList');
-    if (!customersList) return;
+    console.log('Filtered customers:', filteredCustomers.length);
     
     if (filteredCustomers.length === 0) {
         customersList.innerHTML = `
