@@ -172,9 +172,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadCustomers();
     }, 500);
     
-    // Set today's date as default for date inputs
-    const dueDateInput = document.querySelector('input[name="dueDate"]');
-    if (dueDateInput) dueDateInput.value = new Date().toISOString().split('T')[0];
     
     // Initialize first item's image upload
     setupImageUpload(1);
@@ -267,6 +264,19 @@ window.switchPage = switchPage;
 function initializeEventListeners() {
     // New Order Form
     document.getElementById('newOrderForm').addEventListener('submit', handleNewOrder);
+    
+    // Format total amount to 2 decimal places on blur
+    const totalAmountInput = document.getElementById('totalAmountInput');
+    if (totalAmountInput) {
+        totalAmountInput.addEventListener('blur', (e) => {
+            const value = parseFloat(e.target.value);
+            if (!isNaN(value)) {
+                e.target.value = value.toFixed(2);
+            } else {
+                e.target.value = '0.00';
+            }
+        });
+    }
     
     // Add Item Button
     document.getElementById('addItemBtn').addEventListener('click', addOrderItem);
@@ -553,11 +563,15 @@ function loadOrders() {
 
     const ordersHtml = filteredOrders.map(order => {
         const statusClass = `status-${order.status}`;
-        const date = new Date(order.createdAt).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-        });
+        
+        // Extract item names from order items
+        let itemsDisplay = 'No items';
+        if (order.items && Array.isArray(order.items) && order.items.length > 0) {
+            const itemNames = order.items
+                .map(item => item.item || 'Unknown Item')
+                .filter(name => name && name.trim() !== '');
+            itemsDisplay = itemNames.length > 0 ? itemNames.join(', ') : 'No items';
+        }
         
         return `
             <div class="order-card" onclick="editOrder('${order.id}')">
@@ -567,7 +581,7 @@ function loadOrders() {
                 </div>
                 <div class="order-details">
                     ${order.customerPhone ? `<div>📞 ${order.customerPhone}</div>` : ''}
-                    <div>📅 ${date}</div>
+                    <div>📦 ${itemsDisplay}</div>
                     ${order.notes ? `<div>📝 ${order.notes.substring(0, 50)}${order.notes.length > 50 ? '...' : ''}</div>` : ''}
                 </div>
                 <div class="order-amount">$${order.totalAmount?.toFixed(2) || '0.00'}</div>
@@ -619,7 +633,6 @@ async function handleNewOrder(e) {
         totalAmount: totalAmount,
         status: status,
         notes: formData.get('notes') || '',
-        dueDate: formData.get('dueDate') || null,
         updatedAt: new Date().toISOString()
     };
 
@@ -799,9 +812,10 @@ function editOrder(orderId) {
         form.querySelector('[name="customerName"]').value = order.customerName || '';
         form.querySelector('[name="customerPhone"]').value = order.customerPhone || '';
         form.querySelector('[name="customerEmail"]').value = order.customerEmail || '';
-        form.querySelector('[name="totalAmount"]').value = order.totalAmount || '0.00';
+        // Format total amount to always show 2 decimal places
+        const totalAmountValue = order.totalAmount ? parseFloat(order.totalAmount).toFixed(2) : '0.00';
+        form.querySelector('[name="totalAmount"]').value = totalAmountValue;
         form.querySelector('[name="notes"]').value = order.notes || '';
-        form.querySelector('[name="dueDate"]').value = order.dueDate ? order.dueDate.split('T')[0] : '';
         form.querySelector('[name="status"]').value = order.status || 'pending';
         
         // Set customer ID if available
@@ -1015,7 +1029,7 @@ function loadCustomers(searchQuery = '') {
     }
     
     const customersHtml = filteredCustomers.map(customer => `
-        <div class="customer-card">
+        <div class="customer-card" data-customer-id="${customer.id}" style="cursor: pointer;">
             <div class="customer-name">${customer.name || 'Unknown'}</div>
             <div class="customer-contact">
                 ${customer.phone ? `<div>📞 ${customer.phone}</div>` : ''}
@@ -1026,6 +1040,20 @@ function loadCustomers(searchQuery = '') {
     `).join('');
     
     customersList.innerHTML = customersHtml;
+    
+    // Add click handlers to customer cards
+    const customerCards = customersList.querySelectorAll('.customer-card');
+    customerCards.forEach(card => {
+        card.addEventListener('click', (e) => {
+            const customerId = card.getAttribute('data-customer-id');
+            if (customerId) {
+                const customer = customers.find(c => c && c.id === customerId);
+                if (customer) {
+                    showCustomerOrders(customer);
+                }
+            }
+        });
+    });
 }
 
 // Show Customer Modal
@@ -1099,6 +1127,117 @@ async function handleCustomerSubmit(e, customer = null) {
         console.error('Error saving customer:', error);
         alert('Error saving customer. Please try again.');
     }
+}
+
+// Show Customer Orders
+function showCustomerOrders(customer) {
+    // Normalize customer data for matching
+    const customerNameNormalized = (customer.name || '').trim().toLowerCase();
+    const customerEmailNormalized = (customer.email || '').trim().toLowerCase();
+    const customerPhoneNormalized = (customer.phone || '').trim().replace(/\D/g, '');
+    
+    // Find all orders for this customer
+    const customerOrders = orders.filter(o => {
+        // PRIMARY match: customerId (most reliable - exact match)
+        if (o.customerId && customer.id && o.customerId === customer.id) {
+            return true;
+        }
+        
+        // SECONDARY match: customer name (exact match only, case-insensitive, trimmed)
+        // Only match if customerId is not present (for backward compatibility with old orders)
+        if (!o.customerId) {
+            const orderNameNormalized = (o.customerName || '').trim().toLowerCase();
+            if (orderNameNormalized === customerNameNormalized && customerNameNormalized !== '') {
+                return true;
+            }
+            
+            // TERTIARY match: email (only if both are non-empty and customerId not present)
+            const orderEmailNormalized = (o.customerEmail || '').trim().toLowerCase();
+            if (customerEmailNormalized && orderEmailNormalized && orderEmailNormalized === customerEmailNormalized) {
+                return true;
+            }
+            
+            // QUATERNARY match: phone (only if both are non-empty, normalized, and customerId not present)
+            const orderPhoneNormalized = (o.customerPhone || '').trim().replace(/\D/g, '');
+            if (customerPhoneNormalized && orderPhoneNormalized && orderPhoneNormalized === customerPhoneNormalized) {
+                return true;
+            }
+        }
+        
+        return false;
+    }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    const totalSpent = customerOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+    
+    const modal = document.getElementById('customerModal');
+    const modalBody = document.getElementById('customerModalBody');
+    
+    if (!modal || !modalBody) return;
+    
+    modalBody.innerHTML = `
+        <h2>${customer.name} - Orders</h2>
+        <div style="margin-bottom: 1.5rem;">
+            <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
+                ${customer.phone ? `<div>📞 ${customer.phone}</div>` : ''}
+                ${customer.email ? `<div>✉️ ${customer.email}</div>` : ''}
+                ${customer.address ? `<div>📍 ${customer.address}</div>` : ''}
+            </div>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;">
+                <div style="background: #f0f0f0; padding: 0.75rem; border-radius: 8px; flex: 1; min-width: 120px;">
+                    <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.25rem;">Total Orders</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #333;">${customerOrders.length}</div>
+                </div>
+                <div style="background: #f0f0f0; padding: 0.75rem; border-radius: 8px; flex: 1; min-width: 120px;">
+                    <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.25rem;">Total Spent</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #667eea;">$${totalSpent.toFixed(2)}</div>
+                </div>
+            </div>
+        </div>
+        ${customerOrders.length > 0 ? `
+            <div style="max-height: 60vh; overflow-y: auto;">
+                <h3 style="margin-bottom: 1rem; font-size: 1.1rem;">Order History</h3>
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    ${customerOrders.map(order => {
+                        const item1 = order.items && order.items[0] ? order.items[0] : {};
+                        const totalQuantity = order.items ? order.items.reduce((sum, item) => sum + (parseInt(item.quantity) || 0), 0) : 0;
+                        const itemsDisplay = order.items && order.items.length > 1 
+                            ? `${item1.item || 'N/A'} ${item1.color ? `(${item1.color})` : ''} +${order.items.length - 1} more (${totalQuantity} total)`
+                            : `${item1.item || 'N/A'} ${item1.color ? `(${item1.color})` : ''} x${totalQuantity || 1}`;
+                        const statusClass = order.status === 'completed' ? 'status-completed' : 
+                                          order.status === 'in_progress' ? 'status-in_progress' : 'status-pending';
+                        return `
+                            <div class="order-card" onclick="editOrder('${order.id}'); document.getElementById('customerModal').style.display='none';" style="cursor: pointer;">
+                                <div class="order-card-header">
+                                    <div>
+                                        <div style="font-weight: 600; margin-bottom: 0.25rem;">Order #${order.orderNumber || order.id.substring(0, 8)}</div>
+                                        <div style="font-size: 0.85rem; color: #666;">${new Date(order.createdAt).toLocaleDateString()}</div>
+                                    </div>
+                                    <span class="order-status ${statusClass}">${order.status || 'pending'}</span>
+                                </div>
+                                <div class="order-details">
+                                    <div><strong>Items:</strong> ${itemsDisplay}</div>
+                                    ${order.dueDate ? `<div><strong>Due:</strong> ${new Date(order.dueDate).toLocaleDateString()}</div>` : ''}
+                                    ${order.notes ? `<div><strong>Notes:</strong> ${order.notes}</div>` : ''}
+                                </div>
+                                <div class="order-amount">$${(order.totalAmount || 0).toFixed(2)}</div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        ` : `
+            <div class="empty-state">
+                <div class="empty-state-icon">📋</div>
+                <p>No orders found for this customer</p>
+            </div>
+        `}
+        <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('customerModal').style.display='none';" style="flex: 1;">Close</button>
+            <button type="button" class="btn btn-primary" onclick="document.getElementById('customerModal').style.display='none'; switchPage('new-order'); const nameInput = document.getElementById('customerNameInput'); if (nameInput) { nameInput.value = '${customer.name.replace(/'/g, "\\'")}'; const customerIdInput = document.getElementById('customerIdInput'); if (customerIdInput) customerIdInput.value = '${customer.id}'; }" style="flex: 1;">New Order</button>
+        </div>
+    `;
+    
+    modal.style.display = 'flex';
 }
 
 // Update Manager Class (matching Hunting Red app approach)
