@@ -1,6 +1,6 @@
 // PWA Main JavaScript
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-import { getFirestore, collection, addDoc, updateDoc, doc, query, where, onSnapshot, orderBy } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+import { getFirestore, collection, addDoc, updateDoc, doc, query, where, onSnapshot, orderBy, getDocs, limit, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 import { firebaseConfig, COLLECTIONS } from './firebase-config.js';
 import { Order, OrderStatus } from './types.js';
@@ -22,6 +22,17 @@ let orders = [];
 let customers = [];
 let itemCounter = 1;
 let editingOrderId = null;
+
+// Format currency with commas
+function formatCurrency(amount) {
+    if (amount === null || amount === undefined || isNaN(amount)) {
+        return '0.00';
+    }
+    return parseFloat(amount).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+}
 
 // Debug message display (shows on-screen messages for mobile debugging)
 function showDebugMessage(message, type = 'info') {
@@ -584,13 +595,81 @@ function loadOrders() {
                     <div>📦 ${itemsDisplay}</div>
                     ${order.notes ? `<div>📝 ${order.notes.substring(0, 50)}${order.notes.length > 50 ? '...' : ''}</div>` : ''}
                 </div>
-                <div class="order-amount">$${order.totalAmount?.toFixed(2) || '0.00'}</div>
+                <div class="order-amount">$${formatCurrency(order.totalAmount || 0)}</div>
             </div>
         `;
     }).join('');
 
     ordersListEl.innerHTML = ordersHtml;
     console.log('Orders displayed:', filteredOrders.length);
+}
+
+// Get next sequential order number (matches desktop app logic)
+async function getNextOrderNumber() {
+    try {
+        // First, try to find the highest existing order number
+        let highestOrderNumber = 0;
+        try {
+            const ordersRef = collection(db, COLLECTIONS.ORDERS);
+            const ordersQuery = query(ordersRef, orderBy('orderNumber', 'desc'), limit(1));
+            const ordersSnapshot = await getDocs(ordersQuery);
+            
+            if (!ordersSnapshot.empty) {
+                const lastOrder = ordersSnapshot.docs[0].data();
+                const lastOrderNumber = lastOrder.orderNumber;
+                if (lastOrderNumber) {
+                    highestOrderNumber = parseInt(lastOrderNumber, 10);
+                }
+            }
+        } catch (queryError) {
+            // Could not query orders for highest number
+            console.warn('Could not query orders for highest number:', queryError);
+        }
+        
+        // Get or create the counter document
+        const counterRef = doc(db, '_counters', 'orders');
+        const counterDoc = await getDoc(counterRef);
+        
+        let nextNumber = 1;
+        if (counterDoc.exists()) {
+            const counterValue = counterDoc.data().count || 0;
+            // Use the higher of: counter value or highest existing order number
+            nextNumber = Math.max(counterValue, highestOrderNumber) + 1;
+        } else {
+            // Counter doesn't exist, start from highest existing + 1, or 1 if no orders
+            nextNumber = highestOrderNumber + 1;
+        }
+        
+        // Update the counter with the new number
+        await setDoc(counterRef, { count: nextNumber }, { merge: true });
+        
+        // Return formatted order number (5 digits with leading zeros)
+        return String(nextNumber).padStart(5, '0');
+    } catch (error) {
+        // Last resort: try to find highest order number one more time
+        try {
+            const ordersRef = collection(db, COLLECTIONS.ORDERS);
+            const ordersSnapshot = await getDocs(ordersRef);
+            
+            let highestNumber = 0;
+            ordersSnapshot.forEach(doc => {
+                const orderData = doc.data();
+                if (orderData.orderNumber) {
+                    const num = parseInt(orderData.orderNumber, 10);
+                    if (!isNaN(num) && num > highestNumber) {
+                        highestNumber = num;
+                    }
+                }
+            });
+            
+            const nextNumber = highestNumber + 1;
+            return String(nextNumber).padStart(5, '0');
+        } catch (fallbackError) {
+            // If everything fails, start at 00001
+            console.error('Error getting next order number:', fallbackError);
+            return '00001';
+        }
+    }
 }
 
 // Handle New Order
@@ -638,13 +717,21 @@ async function handleNewOrder(e) {
 
     try {
         if (editingOrderId) {
-            // Update existing order
+            // Update existing order - preserve order number
             const orderRef = doc(db, COLLECTIONS.ORDERS, editingOrderId);
+            const existingOrderDoc = await getDoc(orderRef);
+            if (existingOrderDoc.exists()) {
+                const existingData = existingOrderDoc.data();
+                // Preserve the order number from existing order
+                orderData.orderNumber = existingData.orderNumber || orderData.orderNumber;
+            }
             await updateDoc(orderRef, orderData);
             alert('Order updated successfully!');
             editingOrderId = null;
         } else {
-            // Create new order
+            // Create new order - generate sequential order number
+            const orderNumber = await getNextOrderNumber();
+            orderData.orderNumber = orderNumber;
             orderData.createdAt = new Date().toISOString();
             await addDoc(collection(db, COLLECTIONS.ORDERS), orderData);
             alert('Order created successfully!');
@@ -1189,7 +1276,7 @@ function showCustomerOrders(customer) {
                 </div>
                 <div style="background: #f0f0f0; padding: 0.75rem; border-radius: 8px; flex: 1; min-width: 120px;">
                     <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.25rem;">Total Spent</div>
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #667eea;">$${totalSpent.toFixed(2)}</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #667eea;">$${formatCurrency(totalSpent)}</div>
                 </div>
             </div>
         </div>
@@ -1219,7 +1306,7 @@ function showCustomerOrders(customer) {
                                     ${order.dueDate ? `<div><strong>Due:</strong> ${new Date(order.dueDate).toLocaleDateString()}</div>` : ''}
                                     ${order.notes ? `<div><strong>Notes:</strong> ${order.notes}</div>` : ''}
                                 </div>
-                                <div class="order-amount">$${(order.totalAmount || 0).toFixed(2)}</div>
+                                <div class="order-amount">$${formatCurrency(order.totalAmount || 0)}</div>
                             </div>
                         `;
                     }).join('')}
