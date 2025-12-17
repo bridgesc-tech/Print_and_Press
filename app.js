@@ -1,4 +1,7 @@
 // PWA Main JavaScript
+// Update this version when deploying a new version
+const APP_VERSION = '1.3.8';
+
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getFirestore, collection, addDoc, updateDoc, doc, query, where, onSnapshot, orderBy, getDocs, limit, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
@@ -1369,8 +1372,13 @@ class UpdateManager {
         }
         
         try {
-            this.registration = await navigator.serviceWorker.register('/Print_and_Press/service-worker.js', { scope: '/Print_and_Press/' });
-            console.log('Service Worker registered:', this.registration);
+            // Register service worker - browser will detect changes in the file content
+            // The version change in service-worker.js will trigger an update
+            this.registration = await navigator.serviceWorker.register('/Print_and_Press/service-worker.js', { 
+                scope: '/Print_and_Press/',
+                updateViaCache: 'none' // Always check for updates, don't use cache
+            });
+            console.log('Service Worker registered:', this.registration, 'App Version:', APP_VERSION);
             
             // Check for updates immediately
             await this.checkForUpdate();
